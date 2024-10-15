@@ -1,3 +1,3 @@
-export const INR_BALANCES = {};
-export const ORDERBOOK = {};
-export const STOCK_BALANCES = {};
+export let INR_BALANCES = {};
+export let ORDERBOOK = {};
+export let STOCK_BALANCES = {};

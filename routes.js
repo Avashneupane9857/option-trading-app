@@ -47,7 +47,7 @@ routers.post("/onramp/inr", (req, res) => {
     return res.status(404).json({ message: "User chaina lah." });
 
   INR_BALANCES[userId].balance += amount / 100;
-  res.status(200).json({ message: `INR added to ${userId}` });
+  res.status(200).json({ message: `${amount / 100} INR added to ${userId}` });
 });
 
 routers.get("/balance/stock/:userId", (req, res) => {
@@ -59,8 +59,17 @@ routers.get("/balance/stock/:userId", (req, res) => {
   res.json(stockBalance);
 });
 
-routers.post("/order/buy/yes", (req, res) => {
-  const { userId, stockSymbol, quantity, price } = req.body;
+routers.get("/orderbook/:stockSymbol", (req, res) => {
+  const { stockSymbol } = req.params;
+  const orderbook = ORDERBOOK[stockSymbol];
+  if (!orderbook) return res.status(404).json({ message: "symbol not found." });
+
+  res.json(orderbook);
+});
+
+routers.post("/order/buy", (req, res) => {
+  const { userId, stockSymbol, quantity, price, stocktype } = req.body;
+
   if (!INR_BALANCES[userId])
     return res.status(404).json({ message: "User not found." });
 
@@ -85,36 +94,72 @@ routers.post("/order/buy/yes", (req, res) => {
   res.status(200).json({ message: "Buy order placed." });
 });
 
-routers.post("/order/sell/yes", (req, res) => {
-  const { userId, stockSymbol, quantity, price } = req.body;
-  if (
-    !STOCK_BALANCES[userId] ||
-    !STOCK_BALANCES[userId][stockSymbol] ||
-    STOCK_BALANCES[userId][stockSymbol].yes.quantity < quantity
-  ) {
-    return res.status(400).json({ message: "Insufficient stock quantity." });
+routers.post("/order/sell", (req, res) => {
+  const { userId, stockSymbol, quantity, price, stocktype } = req.body;
+  if (stocktype === "yes") {
+    if (
+      !STOCK_BALANCES[userId] ||
+      !STOCK_BALANCES[userId][stockSymbol] ||
+      STOCK_BALANCES[userId][stockSymbol].yes.quantity < quantity
+    ) {
+      return res.status(400).json({ message: "Insufficient stock quantity." });
+    }
+
+    STOCK_BALANCES[userId][stockSymbol].yes.quantity -= quantity;
+    STOCK_BALANCES[userId][stockSymbol].yes.locked += quantity;
+
+    if (!ORDERBOOK[stockSymbol]) initializeOrderBook(stockSymbol);
+
+    if (!ORDERBOOK[stockSymbol].yes[price]) {
+      ORDERBOOK[stockSymbol].yes[price] = { total: 0, orders: {} };
+    }
+
+    ORDERBOOK[stockSymbol].yes[price].total += quantity;
+    ORDERBOOK[stockSymbol].yes[price].orders[userId] =
+      (ORDERBOOK[stockSymbol].yes[price].orders[userId] || 0) + quantity;
+  } else {
+    if (
+      !STOCK_BALANCES[userId] ||
+      !STOCK_BALANCES[userId][stockSymbol] ||
+      STOCK_BALANCES[userId][stockSymbol].no.quantity < quantity
+    ) {
+      return res.status(400).json({ message: "Insufficient stock quantity." });
+    }
+
+    STOCK_BALANCES[userId][stockSymbol].no.quantity -= quantity;
+    STOCK_BALANCES[userId][stockSymbol].no.locked += quantity;
+
+    if (!ORDERBOOK[stockSymbol]) initializeOrderBook(stockSymbol);
+
+    if (!ORDERBOOK[stockSymbol].no[price]) {
+      ORDERBOOK[stockSymbol].no[price] = { total: 0, orders: {} };
+    }
+
+    ORDERBOOK[stockSymbol].no[price].total += quantity;
+    ORDERBOOK[stockSymbol].no[price].orders[userId] =
+      (ORDERBOOK[stockSymbol].no[price].orders[userId] || 0) + quantity;
   }
-
-  STOCK_BALANCES[userId][stockSymbol].yes.quantity -= quantity;
-  STOCK_BALANCES[userId][stockSymbol].yes.locked += quantity;
-
-  if (!ORDERBOOK[stockSymbol]) initializeOrderBook(stockSymbol);
-
-  if (!ORDERBOOK[stockSymbol].yes[price]) {
-    ORDERBOOK[stockSymbol].yes[price] = { total: 0, orders: {} };
-  }
-
-  ORDERBOOK[stockSymbol].yes[price].total += quantity;
-  ORDERBOOK[stockSymbol].yes[price].orders[userId] =
-    (ORDERBOOK[stockSymbol].yes[price].orders[userId] || 0) + quantity;
 
   res.status(200).json({ message: "Sell order placed." });
 });
 
-routers.get("/orderbook/:stockSymbol", (req, res) => {
-  const { stockSymbol } = req.params;
-  const orderbook = ORDERBOOK[stockSymbol];
-  if (!orderbook) return res.status(404).json({ message: "Symbol not found." });
+routers.get("/reset", (req, res) => {
+  Object.assign((INR_BALANCES = {}));
+  Object.assign((STOCK_BALANCES = {}));
+  Object.assign((ORDERBOOK = {}));
+});
 
-  res.json(orderbook);
+routers.post("/trade/mint", (req, res) => {
+  const { userId, stockSymbol, quantity } = req.body;
+  if (!STOCK_BALANCES[userId]) STOCK_BALANCES[userId] = {};
+
+  if (!STOCK_BALANCES[userId][stockSymbol]) {
+    STOCK_BALANCES[userId][stockSymbol] = {
+      yes: { quantity: 0, locked: 0 },
+      no: { quantity: 0, locked: 0 },
+    };
+  }
+
+  STOCK_BALANCES[userId][stockSymbol].yes.quantity += quantity;
+  res.status(200).json({ message: "Tokens minted." });
 });
